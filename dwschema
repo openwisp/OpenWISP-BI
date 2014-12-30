@@ -1,0 +1,1207 @@
+--
+-- PostgreSQL database dump
+--
+
+-- Dumped from database version 9.1.12
+-- Dumped by pg_dump version 9.3.1
+-- Started on 2014-12-30 16:31:23 CET
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SET check_function_bodies = false;
+SET client_min_messages = warning;
+
+--
+-- TOC entry 188 (class 3079 OID 11645)
+-- Name: plpgsql; Type: EXTENSION; Schema: -; Owner: 
+--
+
+CREATE EXTENSION IF NOT EXISTS plpgsql WITH SCHEMA pg_catalog;
+
+
+--
+-- TOC entry 2021 (class 0 OID 0)
+-- Dependencies: 188
+-- Name: EXTENSION plpgsql; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION plpgsql IS 'PL/pgSQL procedural language';
+
+
+SET search_path = public, pg_catalog;
+
+--
+-- TOC entry 200 (class 1255 OID 26652)
+-- Name: conta_user(text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION conta_user(text, text, text) RETURNS integer
+    LANGUAGE plpgsql
+    AS $_$declare 
+   method ALIAS for $1;
+   startime ALIAS for $2;
+   stoptime ALIAS for $3;
+   numero INTEGER;
+begin 
+   select into numero count(*) from d_user, d_tempo 
+          where data_id=d_user.data_attivaz_id and data_cap <= stoptime  and mod_registr_cap = method;
+   return numero;
+end;$_$;
+
+
+ALTER FUNCTION public.conta_user(text, text, text) OWNER TO postgres;
+
+--
+-- TOC entry 202 (class 1255 OID 27106)
+-- Name: cumulative_reg(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION cumulative_reg(stopd text) RETURNS TABLE(nroregistrazioni numeric, datareg text, registration text)
+    LANGUAGE sql
+    AS $_$
+select  
+            sum(count(mod_registr_cap)) over ( PARTITION by mod_registr_cap order by TEMPO.data_cap ) nroregistrazioni,
+            TEMPO.data_cap, mod_registr_cap
+      from d_user JOIN
+      ( select d_tempo.data_id, d_tempo.data_cap from d_tempo 
+               where  data_cap >='2008-11-16' and data_cap <$1 ) as TEMPO
+              on TEMPO.data_id=d_user.data_attivaz_id where verified='1' and realm_cap='Default'
+group by TEMPO.data_cap, mod_registr_cap
+order by TEMPO.data_cap asc;
+$_$;
+
+
+ALTER FUNCTION public.cumulative_reg(stopd text) OWNER TO postgres;
+
+--
+-- TOC entry 201 (class 1255 OID 26663)
+-- Name: getrows(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION getrows(stopd text) RETURNS TABLE(nroregistrazioni numeric, datareg text, registration text)
+    LANGUAGE sql
+    AS $_$
+select  
+            sum(count(mod_registr_cap)) over ( PARTITION by mod_registr_cap order by TEMPO.data_cap ) nroregistrazioni,
+            TEMPO.data_cap, mod_registr_cap
+      from d_user JOIN
+      ( select d_tempo.data_id, d_tempo.data_cap from d_tempo 
+               where  data_cap >='2008-10-01' and data_cap <=$1 ) as TEMPO
+              on TEMPO.data_id=d_user.data_attivaz_id where verified='1' and realm_cap='Default'
+group by TEMPO.data_cap, mod_registr_cap
+order by TEMPO.data_cap asc;
+$_$;
+
+
+ALTER FUNCTION public.getrows(stopd text) OWNER TO postgres;
+
+--
+-- TOC entry 203 (class 1255 OID 27253)
+-- Name: top_sess(integer, text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION top_sess(limite integer, datain text, dataout text, comune text) RETURNS TABLE(nsess bigint, nsessunic bigint, apid integer)
+    LANGUAGE sql
+    AS $_$  
+
+select sum(sess_num) as nsess, count(sess_num) as nsessunic, c_utenza.ap_id as apid from c_utenza join d_ap on c_utenza.ap_id = d_ap.ap_id join d_tempo on d_tempo.data_id = c_utenza.data_id
+       where c_utenza.ap_id <>'1455' and comune_cap=$4 and d_tempo.data_name > $2 and  d_tempo.data_name < $3 
+       group by c_utenza.ap_id
+
+       order by sum(sess_num)  desc limit $1
+       $_$;
+
+
+ALTER FUNCTION public.top_sess(limite integer, datain text, dataout text, comune text) OWNER TO postgres;
+
+--
+-- TOC entry 205 (class 1255 OID 27280)
+-- Name: top_traff(integer, text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION top_traff(limite integer, datain text, dataout text, comune text) RETURNS TABLE(download numeric, upload numeric, apid integer)
+    LANGUAGE sql
+    AS $_$  
+
+select sum(volume_downl_num) as download, sum(volume_upl_num) as upload,  c_traffico.ap_id as apid from c_traffico join d_ap on c_traffico.ap_id = d_ap.ap_id 
+       join d_tempo on d_tempo.data_id = c_traffico.data_id
+       where c_traffico.ap_id <>'1455' and comune_cap=$4 and d_tempo.data_name > $2 and  d_tempo.data_name < $3 
+       group by c_traffico.ap_id
+
+       order by sum(volume_downl_num)  desc limit $1
+       $_$;
+
+
+ALTER FUNCTION public.top_traff(limite integer, datain text, dataout text, comune text) OWNER TO postgres;
+
+--
+-- TOC entry 204 (class 1255 OID 27258)
+-- Name: worst_sess(integer, text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION worst_sess(limite integer, datain text, dataout text, comune text) RETURNS TABLE(nsess bigint, nsessunic bigint, apid integer)
+    LANGUAGE sql
+    AS $_$  
+
+select sum(sess_num) as nsess, count(sess_num) as nsessunic, c_utenza.ap_id as apid from c_utenza join d_ap on c_utenza.ap_id = d_ap.ap_id join d_tempo on d_tempo.data_id = c_utenza.data_id
+       where c_utenza.ap_id <>'1455' and comune_cap=$4 and d_tempo.data_name > $2 and  d_tempo.data_name < $3 
+       group by c_utenza.ap_id
+
+       order by sum(sess_num)  asc limit $1
+       $_$;
+
+
+ALTER FUNCTION public.worst_sess(limite integer, datain text, dataout text, comune text) OWNER TO postgres;
+
+--
+-- TOC entry 206 (class 1255 OID 27281)
+-- Name: worst_traff(integer, text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION worst_traff(limite integer, datain text, dataout text, comune text) RETURNS TABLE(download numeric, upload numeric, apid integer)
+    LANGUAGE sql
+    AS $_$  
+
+select sum(volume_downl_num) as download, sum(volume_upl_num) as upload,  c_traffico.ap_id as apid from c_traffico join d_ap on c_traffico.ap_id = d_ap.ap_id 
+       join d_tempo on d_tempo.data_id = c_traffico.data_id
+       where c_traffico.ap_id <>'1455' and comune_cap=$4 and d_tempo.data_name > $2 and  d_tempo.data_name < $3 
+       group by c_traffico.ap_id
+
+       order by sum(volume_downl_num)  asc limit $1
+       $_$;
+
+
+ALTER FUNCTION public.worst_traff(limite integer, datain text, dataout text, comune text) OWNER TO postgres;
+
+SET default_tablespace = '';
+
+SET default_with_oids = false;
+
+--
+-- TOC entry 186 (class 1259 OID 26096)
+-- Name: c_funzion; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE c_funzion (
+    ap_id integer NOT NULL,
+    data_id integer NOT NULL,
+    ora_id integer NOT NULL,
+    tempo_funzion_num integer,
+    tempo_tot_num integer,
+    grup_ap_id integer NOT NULL,
+    camb_stato_num integer,
+    monit_flag character varying(2)
+);
+
+
+ALTER TABLE public.c_funzion OWNER TO pentahopdi;
+
+--
+-- TOC entry 173 (class 1259 OID 25899)
+-- Name: c_traffico; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE c_traffico (
+    ap_id integer NOT NULL,
+    sess_num integer,
+    data_id integer NOT NULL,
+    ora_id integer NOT NULL,
+    grup_ap_id integer NOT NULL,
+    dur_min_num numeric(10,1),
+    volume_downl_num numeric(20,2),
+    volume_upl_num numeric(20,2)
+);
+
+
+ALTER TABLE public.c_traffico OWNER TO pentahopdi;
+
+--
+-- TOC entry 174 (class 1259 OID 25910)
+-- Name: c_utenza; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE c_utenza (
+    sess_num integer,
+    ap_id integer NOT NULL,
+    user_id integer NOT NULL,
+    data_id integer NOT NULL,
+    grup_ap_id integer NOT NULL,
+    terminal_mac character varying(50) NOT NULL,
+    dur_min_num numeric(10,1),
+    volume_downl_num numeric(20,2),
+    volume_upl_num numeric(20,2)
+);
+
+
+ALTER TABLE public.c_utenza OWNER TO pentahopdi;
+
+--
+-- TOC entry 176 (class 1259 OID 25959)
+-- Name: d_ap; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE d_ap (
+    ap_id integer NOT NULL,
+    mac_name character varying(50),
+    vendor_name character varying(20),
+    mod_name character varying(20),
+    data_attivaz_id integer,
+    cap_name character varying(10),
+    ap_cap character varying(255),
+    val_rank character varying(2),
+    firm_name character varying(20),
+    latit numeric(8,4),
+    long numeric(8,4),
+    ap_name character varying(20),
+    comune_name character varying(6),
+    comune_cap character varying(50),
+    prov_name character varying(3),
+    prov_cap character varying(50),
+    reg_name character varying(2),
+    reg_cap character varying(50),
+    naz_name character varying(3),
+    naz_cap character varying(50)
+);
+
+
+ALTER TABLE public.d_ap OWNER TO pentahopdi;
+
+--
+-- TOC entry 177 (class 1259 OID 25967)
+-- Name: d_grup_ap; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE d_grup_ap (
+    grup_ap_id integer NOT NULL,
+    grup_ap_name character varying(20),
+    grup_ap_cap character varying(255)
+);
+
+
+ALTER TABLE public.d_grup_ap OWNER TO pentahopdi;
+
+--
+-- TOC entry 178 (class 1259 OID 25971)
+-- Name: d_ora; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE d_ora (
+    ora_id integer NOT NULL,
+    fascia_lavor_flag character varying(2),
+    fascia_scolast_flag character varying(2),
+    ora_name character varying(2)
+);
+
+
+ALTER TABLE public.d_ora OWNER TO pentahopdi;
+
+--
+-- TOC entry 179 (class 1259 OID 25975)
+-- Name: d_tempo; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE d_tempo (
+    data_id integer NOT NULL,
+    mese_name character varying(2),
+    ann_name character varying(4),
+    trimestre_name character varying(1),
+    giorno_sett_name character varying(1),
+    fest_flag character varying(2),
+    we_flag character varying(2),
+    data_name character varying(8),
+    data_cap character varying(10),
+    mese_cap character varying(3),
+    giorno_sett_cap character varying(3),
+    giorno_name character varying(2)
+);
+
+
+ALTER TABLE public.d_tempo OWNER TO pentahopdi;
+
+--
+-- TOC entry 182 (class 1259 OID 26048)
+-- Name: d_user; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE d_user (
+    user_id integer NOT NULL,
+    data_attivaz_id integer,
+    mod_registr_cap character varying(255),
+    realm_cap character varying(64),
+    verified integer,
+    user_name character varying(64)
+);
+
+
+ALTER TABLE public.d_user OWNER TO pentahopdi;
+
+--
+-- TOC entry 187 (class 1259 OID 26232)
+-- Name: etl_log_job; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE etl_log_job (
+    id_job integer,
+    channel_id character varying(255),
+    jobname character varying(255),
+    status character varying(15),
+    lines_read bigint,
+    lines_written bigint,
+    lines_updated bigint,
+    lines_input bigint,
+    lines_output bigint,
+    lines_rejected bigint,
+    errors bigint,
+    startdate timestamp without time zone,
+    enddate timestamp without time zone,
+    logdate timestamp without time zone,
+    depdate timestamp without time zone,
+    replaydate timestamp without time zone,
+    log_field text,
+    executing_server character varying(255),
+    executing_user character varying(255),
+    start_job_entry character varying(255),
+    client character varying(255)
+);
+
+
+ALTER TABLE public.etl_log_job OWNER TO pentahopdi;
+
+--
+-- TOC entry 180 (class 1259 OID 26010)
+-- Name: etl_log_transf; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE etl_log_transf (
+    id_batch integer,
+    channel_id character varying(255),
+    transname character varying(255),
+    status character varying(15),
+    lines_read bigint,
+    lines_written bigint,
+    lines_updated bigint,
+    lines_input bigint,
+    lines_output bigint,
+    lines_rejected bigint,
+    errors bigint,
+    startdate timestamp without time zone,
+    enddate timestamp without time zone,
+    logdate timestamp without time zone,
+    depdate timestamp without time zone,
+    replaydate timestamp without time zone,
+    log_field text,
+    executing_server character varying(255),
+    executing_user character varying(255),
+    client character varying(255)
+);
+
+
+ALTER TABLE public.etl_log_transf OWNER TO pentahopdi;
+
+--
+-- TOC entry 168 (class 1259 OID 25767)
+-- Name: s_ap; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_ap (
+    mac_name character varying(50),
+    vendor_name character varying(20),
+    mod_name character varying(20),
+    cap_name character varying(10),
+    val_rank character varying(2),
+    firm_name character varying(20),
+    latit numeric(8,4),
+    long numeric(8,4),
+    ap_name character varying(20),
+    comune_name character varying(6),
+    ap_cap character varying(255),
+    grup_ap_name character varying(20),
+    ap_id integer NOT NULL,
+    data_attivaz_id integer,
+    comune_cap character varying(50),
+    prov_name character varying(3),
+    prov_cap character varying(50),
+    reg_name character varying(2),
+    reg_cap character varying(50),
+    naz_name character varying(3),
+    naz_cap character varying(50),
+    grup_ap_cap character varying(255),
+    grup_ap_id integer
+);
+
+
+ALTER TABLE public.s_ap OWNER TO pentahopdi;
+
+--
+-- TOC entry 185 (class 1259 OID 26084)
+-- Name: s_funzion; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_funzion (
+    ap_id integer NOT NULL,
+    data_id integer NOT NULL,
+    ora_id integer NOT NULL,
+    tempo_funzion_num integer NOT NULL,
+    tempo_tot_num integer NOT NULL,
+    grup_ap_id integer NOT NULL,
+    camb_stato_num integer NOT NULL,
+    monit_flag character varying(2) NOT NULL
+);
+
+
+ALTER TABLE public.s_funzion OWNER TO pentahopdi;
+
+--
+-- TOC entry 184 (class 1259 OID 26078)
+-- Name: s_funzion_e; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_funzion_e (
+    ap_name character varying(20),
+    tempo_funzion_num integer,
+    tempo_tot_num integer,
+    camb_stato_num integer,
+    data_name character varying(8),
+    ora_name character varying(2),
+    ap_id integer,
+    grup_ap_id integer,
+    monit_flag character varying(2),
+    ora_id integer,
+    data_id integer,
+    _err_des text
+);
+
+
+ALTER TABLE public.s_funzion_e OWNER TO pentahopdi;
+
+--
+-- TOC entry 165 (class 1259 OID 25711)
+-- Name: s_grup_ap; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_grup_ap (
+    grup_ap_id integer NOT NULL,
+    grup_ap_name character varying(20),
+    grup_ap_cap character varying(255),
+    monit_flag character varying(2)
+);
+
+
+ALTER TABLE public.s_grup_ap OWNER TO pentahopdi;
+
+--
+-- TOC entry 161 (class 1259 OID 25414)
+-- Name: s_ora; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_ora (
+    ora_id integer NOT NULL,
+    fascia_lavor_flag character varying(2),
+    fascia_scolast_flag character varying(2),
+    ora_name character varying(2)
+);
+
+
+ALTER TABLE public.s_ora OWNER TO pentahopdi;
+
+--
+-- TOC entry 163 (class 1259 OID 25432)
+-- Name: s_tempo; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_tempo (
+    data_id integer NOT NULL,
+    mese_name character varying(2),
+    ann_name character varying(4),
+    trimestre_name character varying(1),
+    giorno_sett_name character varying(1),
+    fest_flag character varying(2),
+    we_flag character varying(2),
+    data_name character varying(8),
+    data_cap character varying(10),
+    mese_cap character varying(3),
+    giorno_sett_cap character varying(3),
+    giorno_name character varying(2)
+);
+
+
+ALTER TABLE public.s_tempo OWNER TO pentahopdi;
+
+--
+-- TOC entry 162 (class 1259 OID 25426)
+-- Name: s_terr; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_terr (
+    prov_name character varying(3),
+    reg_name character varying(2),
+    naz_name character varying(3),
+    comune_name character varying(6),
+    comune_cap character varying(50),
+    prov_cap character varying(50),
+    reg_cap character varying(50),
+    naz_cap character varying(50),
+    comune_id integer NOT NULL,
+    comune_catasto_cod character varying(4)
+);
+
+
+ALTER TABLE public.s_terr OWNER TO pentahopdi;
+
+--
+-- TOC entry 169 (class 1259 OID 25801)
+-- Name: s_traffico; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_traffico (
+    ap_id integer NOT NULL,
+    sess_num integer,
+    data_id integer NOT NULL,
+    ora_id integer NOT NULL,
+    grup_ap_id integer,
+    dur_min_num numeric(10,1),
+    volume_downl_num numeric(20,2),
+    volume_upl_num numeric(20,2)
+);
+
+
+ALTER TABLE public.s_traffico OWNER TO pentahopdi;
+
+--
+-- TOC entry 171 (class 1259 OID 25875)
+-- Name: s_traffico_e; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_traffico_e (
+    ap_id integer,
+    sess_num integer,
+    data_id integer,
+    ora_id integer,
+    grup_ap_id integer,
+    mac_name character varying(50),
+    data_name character varying(8),
+    ora_name character varying(2),
+    _err_des character varying(100),
+    dur_min_num numeric(10,1),
+    volume_downl_num numeric(20,2),
+    volume_upl_num numeric(20,2)
+);
+
+
+ALTER TABLE public.s_traffico_e OWNER TO pentahopdi;
+
+--
+-- TOC entry 181 (class 1259 OID 26039)
+-- Name: s_user; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_user (
+    mod_registr_cap character varying(255),
+    user_cod character varying(64) NOT NULL,
+    user_id integer NOT NULL,
+    data_attivaz_id integer,
+    realm_cap character varying(64),
+    verified integer,
+    user_name character varying(64)
+);
+
+
+ALTER TABLE public.s_user OWNER TO pentahopdi;
+
+--
+-- TOC entry 175 (class 1259 OID 25921)
+-- Name: s_utenza; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_utenza (
+    sess_num integer,
+    terminal_mac character varying(50) NOT NULL,
+    ap_id integer NOT NULL,
+    data_id integer NOT NULL,
+    user_id integer NOT NULL,
+    grup_ap_id integer NOT NULL,
+    dur_min_num numeric(10,1),
+    volume_downl_num numeric(20,2),
+    volume_upl_num numeric(20,2)
+);
+
+
+ALTER TABLE public.s_utenza OWNER TO pentahopdi;
+
+--
+-- TOC entry 172 (class 1259 OID 25882)
+-- Name: s_utenza_e; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE s_utenza_e (
+    sess_num integer,
+    terminal_mac character varying(50),
+    ap_id integer,
+    data_id integer,
+    user_id integer,
+    grup_ap_id integer,
+    _err_des character varying(100),
+    user_cod character varying(64),
+    data_name character varying(8),
+    mac_name character varying(50),
+    dur_min_num numeric(10,1),
+    volume_downl_num numeric(20,2),
+    volume_upl_num numeric(20,2)
+);
+
+
+ALTER TABLE public.s_utenza_e OWNER TO pentahopdi;
+
+--
+-- TOC entry 167 (class 1259 OID 25760)
+-- Name: t_ap; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE t_ap (
+    mac_name character varying(50),
+    vendor_name character varying(20),
+    mod_name character varying(20),
+    cap_name character varying(10),
+    val_rank character varying(2),
+    firm_name character varying(20),
+    latit numeric(8,4),
+    long numeric(8,4),
+    ap_name character varying(20),
+    comune_cap character varying(50),
+    data_attivaz_name character varying(8),
+    ap_cap character varying(255),
+    grup_ap_name character varying(20)
+);
+
+
+ALTER TABLE public.t_ap OWNER TO pentahopdi;
+
+--
+-- TOC entry 183 (class 1259 OID 26073)
+-- Name: t_funzion; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE t_funzion (
+    ap_name character varying(20) NOT NULL,
+    tempo_funzion_num integer NOT NULL,
+    tempo_tot_num integer NOT NULL,
+    camb_stato_num integer NOT NULL,
+    data_name character varying(8) NOT NULL,
+    ora_name character varying(2) NOT NULL
+);
+
+
+ALTER TABLE public.t_funzion OWNER TO pentahopdi;
+
+--
+-- TOC entry 166 (class 1259 OID 25753)
+-- Name: t_traffico; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE t_traffico (
+    sess_num integer,
+    mac_name character varying(50),
+    ora_name character varying(2),
+    data_name character varying(8),
+    dur_min_num numeric(10,1),
+    volume_downl_num numeric(20,2),
+    volume_upl_num numeric(20,2)
+);
+
+
+ALTER TABLE public.t_traffico OWNER TO pentahopdi;
+
+--
+-- TOC entry 164 (class 1259 OID 25438)
+-- Name: t_user; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE t_user (
+    data_attivaz_name character varying(8),
+    mod_registr_cap character varying(255),
+    user_cod character varying(64) NOT NULL,
+    realm_cap character varying(64),
+    verified integer,
+    user_name character varying(64)
+);
+
+
+ALTER TABLE public.t_user OWNER TO pentahopdi;
+
+--
+-- TOC entry 170 (class 1259 OID 25827)
+-- Name: t_utenza; Type: TABLE; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE TABLE t_utenza (
+    sess_num integer,
+    mac_name character varying(50),
+    data_name character varying(8),
+    terminal_mac character varying(50),
+    user_cod character varying(64),
+    dur_min_num numeric(10,1),
+    volume_downl_num numeric(20,2),
+    volume_upl_num numeric(20,2)
+);
+
+
+ALTER TABLE public.t_utenza OWNER TO pentahopdi;
+
+--
+-- TOC entry 1878 (class 2606 OID 25775)
+-- Name: s_ap_pkey; Type: CONSTRAINT; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+ALTER TABLE ONLY s_ap
+    ADD CONSTRAINT s_ap_pkey PRIMARY KEY (ap_id);
+
+
+--
+-- TOC entry 1875 (class 2606 OID 25716)
+-- Name: s_grup_ap_pkey; Type: CONSTRAINT; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+ALTER TABLE ONLY s_grup_ap
+    ADD CONSTRAINT s_grup_ap_pkey PRIMARY KEY (grup_ap_id);
+
+
+--
+-- TOC entry 1866 (class 2606 OID 25419)
+-- Name: s_ora_pkey; Type: CONSTRAINT; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+ALTER TABLE ONLY s_ora
+    ADD CONSTRAINT s_ora_pkey PRIMARY KEY (ora_id);
+
+
+--
+-- TOC entry 1872 (class 2606 OID 25437)
+-- Name: s_tempo_pkey; Type: CONSTRAINT; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+ALTER TABLE ONLY s_tempo
+    ADD CONSTRAINT s_tempo_pkey PRIMARY KEY (data_id);
+
+
+--
+-- TOC entry 1869 (class 2606 OID 25431)
+-- Name: s_terr_pkey; Type: CONSTRAINT; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+ALTER TABLE ONLY s_terr
+    ADD CONSTRAINT s_terr_pkey PRIMARY KEY (comune_id);
+
+
+--
+-- TOC entry 1881 (class 2606 OID 25806)
+-- Name: s_traffico_pkey; Type: CONSTRAINT; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+ALTER TABLE ONLY s_traffico
+    ADD CONSTRAINT s_traffico_pkey PRIMARY KEY (ap_id, data_id, ora_id);
+
+
+--
+-- TOC entry 1911 (class 1259 OID 26238)
+-- Name: idx_etl_log_job_1; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX idx_etl_log_job_1 ON etl_log_job USING btree (id_job);
+
+
+--
+-- TOC entry 1912 (class 1259 OID 26239)
+-- Name: idx_etl_log_job_2; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX idx_etl_log_job_2 ON etl_log_job USING btree (errors, status, jobname);
+
+
+--
+-- TOC entry 1899 (class 1259 OID 26016)
+-- Name: idx_etl_log_transf_1; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX idx_etl_log_transf_1 ON etl_log_transf USING btree (id_batch);
+
+
+--
+-- TOC entry 1900 (class 1259 OID 26017)
+-- Name: idx_etl_log_transf_2; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX idx_etl_log_transf_2 ON etl_log_transf USING btree (errors, status, transname);
+
+
+--
+-- TOC entry 1901 (class 1259 OID 26063)
+-- Name: xak1_s_user; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xak1_s_user ON s_user USING btree (user_cod);
+
+
+--
+-- TOC entry 1883 (class 1259 OID 25903)
+-- Name: xie1_c_traffico; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xie1_c_traffico ON c_traffico USING btree (ap_id);
+
+
+--
+-- TOC entry 1884 (class 1259 OID 25904)
+-- Name: xie2_c_traffico; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xie2_c_traffico ON c_traffico USING btree (data_id);
+
+
+--
+-- TOC entry 1885 (class 1259 OID 25905)
+-- Name: xie3_c_traffico; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xie3_c_traffico ON c_traffico USING btree (ora_id);
+
+
+--
+-- TOC entry 1886 (class 1259 OID 25906)
+-- Name: xie4_c_traffico; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xie4_c_traffico ON c_traffico USING btree (grup_ap_id);
+
+
+--
+-- TOC entry 1906 (class 1259 OID 26100)
+-- Name: xif1_c_funzion; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif1_c_funzion ON c_funzion USING btree (ap_id);
+
+
+--
+-- TOC entry 1888 (class 1259 OID 25914)
+-- Name: xif1_c_utenza; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif1_c_utenza ON c_utenza USING btree (ap_id);
+
+
+--
+-- TOC entry 1907 (class 1259 OID 26101)
+-- Name: xif2_c_funzion; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif2_c_funzion ON c_funzion USING btree (data_id);
+
+
+--
+-- TOC entry 1889 (class 1259 OID 25915)
+-- Name: xif2_c_utenza; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif2_c_utenza ON c_utenza USING btree (user_id);
+
+
+--
+-- TOC entry 1894 (class 1259 OID 25966)
+-- Name: xif2_d_ap; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif2_d_ap ON d_ap USING btree (data_attivaz_id);
+
+
+--
+-- TOC entry 1903 (class 1259 OID 26052)
+-- Name: xif2_d_user; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif2_d_user ON d_user USING btree (data_attivaz_id);
+
+
+--
+-- TOC entry 1908 (class 1259 OID 26102)
+-- Name: xif3_c_funzion; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif3_c_funzion ON c_funzion USING btree (ora_id);
+
+
+--
+-- TOC entry 1890 (class 1259 OID 25916)
+-- Name: xif3_c_utenza; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif3_c_utenza ON c_utenza USING btree (data_id);
+
+
+--
+-- TOC entry 1909 (class 1259 OID 26103)
+-- Name: xif4_c_funzion; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif4_c_funzion ON c_funzion USING btree (grup_ap_id);
+
+
+--
+-- TOC entry 1891 (class 1259 OID 25917)
+-- Name: xif4_c_utenza; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE INDEX xif4_c_utenza ON c_utenza USING btree (grup_ap_id);
+
+
+--
+-- TOC entry 1910 (class 1259 OID 26099)
+-- Name: xpk_c_funzion; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_c_funzion ON c_funzion USING btree (ap_id, data_id, ora_id);
+
+
+--
+-- TOC entry 1887 (class 1259 OID 25902)
+-- Name: xpk_c_traffico; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_c_traffico ON c_traffico USING btree (ap_id, data_id, ora_id);
+
+
+--
+-- TOC entry 1892 (class 1259 OID 25913)
+-- Name: xpk_c_utenza; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_c_utenza ON c_utenza USING btree (ap_id, user_id, data_id, terminal_mac);
+
+
+--
+-- TOC entry 1895 (class 1259 OID 25965)
+-- Name: xpk_d_ap; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_d_ap ON d_ap USING btree (ap_id);
+
+
+--
+-- TOC entry 1896 (class 1259 OID 25970)
+-- Name: xpk_d_grup_ap; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_d_grup_ap ON d_grup_ap USING btree (grup_ap_id);
+
+
+--
+-- TOC entry 1897 (class 1259 OID 25974)
+-- Name: xpk_d_ora; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_d_ora ON d_ora USING btree (ora_id);
+
+
+--
+-- TOC entry 1898 (class 1259 OID 25978)
+-- Name: xpk_d_tempo; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_d_tempo ON d_tempo USING btree (data_id);
+
+
+--
+-- TOC entry 1904 (class 1259 OID 26051)
+-- Name: xpk_d_user; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_d_user ON d_user USING btree (user_id);
+
+
+--
+-- TOC entry 1879 (class 1259 OID 25773)
+-- Name: xpk_s_ap; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_s_ap ON s_ap USING btree (ap_id);
+
+
+--
+-- TOC entry 1905 (class 1259 OID 26087)
+-- Name: xpk_s_funzion; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_s_funzion ON s_funzion USING btree (ap_id, data_id, ora_id);
+
+
+--
+-- TOC entry 1876 (class 1259 OID 25714)
+-- Name: xpk_s_grup_ap; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_s_grup_ap ON s_grup_ap USING btree (grup_ap_id);
+
+
+--
+-- TOC entry 1867 (class 1259 OID 25417)
+-- Name: xpk_s_ora; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_s_ora ON s_ora USING btree (ora_id);
+
+
+--
+-- TOC entry 1873 (class 1259 OID 25435)
+-- Name: xpk_s_tempo; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_s_tempo ON s_tempo USING btree (data_id);
+
+
+--
+-- TOC entry 1870 (class 1259 OID 25429)
+-- Name: xpk_s_terr; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_s_terr ON s_terr USING btree (comune_id);
+
+
+--
+-- TOC entry 1882 (class 1259 OID 25804)
+-- Name: xpk_s_traffico; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_s_traffico ON s_traffico USING btree (ap_id, data_id, ora_id);
+
+
+--
+-- TOC entry 1902 (class 1259 OID 26062)
+-- Name: xpk_s_user; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_s_user ON s_user USING btree (user_id);
+
+
+--
+-- TOC entry 1893 (class 1259 OID 25924)
+-- Name: xpk_s_utenza; Type: INDEX; Schema: public; Owner: pentahopdi; Tablespace: 
+--
+
+CREATE UNIQUE INDEX xpk_s_utenza ON s_utenza USING btree (user_id, ap_id, data_id, terminal_mac);
+
+
+--
+-- TOC entry 2020 (class 0 OID 0)
+-- Dependencies: 5
+-- Name: public; Type: ACL; Schema: -; Owner: postgres
+--
+
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM postgres;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO PUBLIC;
+
+
+--
+-- TOC entry 2022 (class 0 OID 0)
+-- Dependencies: 186
+-- Name: c_funzion; Type: ACL; Schema: public; Owner: pentahopdi
+--
+
+REVOKE ALL ON TABLE c_funzion FROM PUBLIC;
+REVOKE ALL ON TABLE c_funzion FROM pentahopdi;
+GRANT ALL ON TABLE c_funzion TO pentahopdi;
+GRANT SELECT ON TABLE c_funzion TO provinciawifi;
+
+
+--
+-- TOC entry 2023 (class 0 OID 0)
+-- Dependencies: 173
+-- Name: c_traffico; Type: ACL; Schema: public; Owner: pentahopdi
+--
+
+REVOKE ALL ON TABLE c_traffico FROM PUBLIC;
+REVOKE ALL ON TABLE c_traffico FROM pentahopdi;
+GRANT ALL ON TABLE c_traffico TO pentahopdi;
+GRANT SELECT ON TABLE c_traffico TO provinciawifi;
+
+
+--
+-- TOC entry 2024 (class 0 OID 0)
+-- Dependencies: 174
+-- Name: c_utenza; Type: ACL; Schema: public; Owner: pentahopdi
+--
+
+REVOKE ALL ON TABLE c_utenza FROM PUBLIC;
+REVOKE ALL ON TABLE c_utenza FROM pentahopdi;
+GRANT ALL ON TABLE c_utenza TO pentahopdi;
+GRANT SELECT ON TABLE c_utenza TO provinciawifi;
+
+
+--
+-- TOC entry 2025 (class 0 OID 0)
+-- Dependencies: 176
+-- Name: d_ap; Type: ACL; Schema: public; Owner: pentahopdi
+--
+
+REVOKE ALL ON TABLE d_ap FROM PUBLIC;
+REVOKE ALL ON TABLE d_ap FROM pentahopdi;
+GRANT ALL ON TABLE d_ap TO pentahopdi;
+GRANT SELECT ON TABLE d_ap TO provinciawifi;
+
+
+--
+-- TOC entry 2026 (class 0 OID 0)
+-- Dependencies: 177
+-- Name: d_grup_ap; Type: ACL; Schema: public; Owner: pentahopdi
+--
+
+REVOKE ALL ON TABLE d_grup_ap FROM PUBLIC;
+REVOKE ALL ON TABLE d_grup_ap FROM pentahopdi;
+GRANT ALL ON TABLE d_grup_ap TO pentahopdi;
+GRANT SELECT ON TABLE d_grup_ap TO provinciawifi;
+
+
+--
+-- TOC entry 2027 (class 0 OID 0)
+-- Dependencies: 178
+-- Name: d_ora; Type: ACL; Schema: public; Owner: pentahopdi
+--
+
+REVOKE ALL ON TABLE d_ora FROM PUBLIC;
+REVOKE ALL ON TABLE d_ora FROM pentahopdi;
+GRANT ALL ON TABLE d_ora TO pentahopdi;
+GRANT SELECT ON TABLE d_ora TO provinciawifi;
+
+
+--
+-- TOC entry 2028 (class 0 OID 0)
+-- Dependencies: 179
+-- Name: d_tempo; Type: ACL; Schema: public; Owner: pentahopdi
+--
+
+REVOKE ALL ON TABLE d_tempo FROM PUBLIC;
+REVOKE ALL ON TABLE d_tempo FROM pentahopdi;
+GRANT ALL ON TABLE d_tempo TO pentahopdi;
+GRANT SELECT ON TABLE d_tempo TO provinciawifi;
+
+
+--
+-- TOC entry 2029 (class 0 OID 0)
+-- Dependencies: 182
+-- Name: d_user; Type: ACL; Schema: public; Owner: pentahopdi
+--
+
+REVOKE ALL ON TABLE d_user FROM PUBLIC;
+REVOKE ALL ON TABLE d_user FROM pentahopdi;
+GRANT ALL ON TABLE d_user TO pentahopdi;
+GRANT SELECT ON TABLE d_user TO provinciawifi;
+
+
+-- Completed on 2014-12-30 16:31:24 CET
+
+--
+-- PostgreSQL database dump complete
+--
+
